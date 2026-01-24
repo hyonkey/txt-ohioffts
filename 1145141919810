@@ -1,0 +1,724 @@
+local scriptState = {
+    active = true,
+    uiVisible = true,
+    minimized = false,
+    mainWindow = nil,
+    miniWindow = nil,
+    recognizedItems = {},
+    maxWhitelist = 2,
+    searchActive = false,
+    searchThread = nil,
+    heartbeatThread = nil,
+    lastOperation = {main = "等待操作", secondary = "脚本已初始化"},
+    maintenanceThreads = {},
+    settings = {
+        flyHeight = 999999,
+        wallCollision = false,
+        infiniteJump = false,
+        walkAir = false,
+        speedMultiplier = 1.0,
+        minSpeed = 0.1,
+        maxSpeed = 100.0
+    }
+}
+
+gg.alert("脚本制作人：呆滞丶\n此脚本仅供教学作用且为AI制作\n禁止进行商用")
+
+local function startHeartbeat()
+    scriptState.heartbeatThread = gg.thread(function()
+        local lastBeat = os.time()
+        local timeout = 30
+        while scriptState.active do
+            gg.sleep(1000)
+            scriptState.lastHeartbeat = os.time()
+            if scriptState.searchActive and scriptState.searchThread then
+                local threadAlive = gg.thread.status(scriptState.searchThread)
+                if not threadAlive then
+                    scriptState.searchActive = false
+                    updateStatus("警告", "搜索线程异常终止，已自动停止")
+                end
+            end
+            if scriptState.lastOperationTime and 
+               os.time() - scriptState.lastOperationTime > timeout then
+                updateStatus("系统", "检测到长时间无活动，执行安全清理")
+                safeCleanup()
+            end
+        end
+    end)
+end
+
+local function safeCleanup()
+    scriptState.searchActive = false
+    if scriptState.searchThread then
+        gg.thread.stop(scriptState.searchThread)
+        scriptState.searchThread = nil
+    end
+    for _, thread in ipairs(scriptState.maintenanceThreads) do
+        gg.thread.stop(thread)
+    end
+    scriptState.maintenanceThreads = {}
+    gg.clearList()
+    gg.clearResults()
+    updateStatus("系统", "安全清理完成")
+end
+
+local function updateStatus(mainText, secondaryText)
+    scriptState.lastOperation.secondary = scriptState.lastOperation.main
+    scriptState.lastOperation.main = mainText
+    scriptState.lastOperationTime = os.time()
+    if scriptState.uiElements and scriptState.uiElements.statusMain then
+        scriptState.uiElements.statusMain.text = "当前: " .. mainText
+        scriptState.uiElements.statusSecondary.text = "上一步: " .. secondaryText
+    end
+end
+
+local function createMainUI()
+    local window = ggui.new()
+    window.title = "Daixiaohao汤姆猫荒野派对脚本"
+    window.width = 360
+    window.height = 580
+    window.x = 50
+    window.y = 100
+    window.backgroundColor = 0x333333E6
+    window.borderColor = 0x4CAF50
+    window.borderWidth = 2
+    window.movable = true
+    window.resizable = false
+    
+    local titleBar = window:addRect(0, 0, 360, 40)
+    titleBar.color = 0x2C3E50FF
+    
+    local title = window:addLabel("Daixiaohao汤姆猫荒野派对脚本")
+    title.x = 70
+    title.y = 10
+    title.fontSize = 16
+    title.color = 0xECF0F1
+    title.bold = true
+    
+    local minimizeBtn = window:addButton("−")
+    minimizeBtn.x = 300
+    minimizeBtn.y = 5
+    minimizeBtn.width = 25
+    minimizeBtn.height = 25
+    minimizeBtn.color = 0xF39C12
+    minimizeBtn.textColor = 0xFFFFFF
+    minimizeBtn.onClick = function()
+        window:hide()
+        createMiniUI(window.x, window.y)
+        scriptState.minimized = true
+        gg.toast("脚本已最小化，双击D图标恢复")
+    end
+    
+    local closeBtn = window:addButton("×")
+    closeBtn.x = 330
+    closeBtn.y = 5
+    closeBtn.width = 25
+    closeBtn.height = 25
+    closeBtn.color = 0xE74C3C
+    closeBtn.textColor = 0xFFFFFF
+    closeBtn.onClick = function()
+        local choice = gg.alert("是否关闭脚本？", "确定", "取消")
+        if choice == 1 then
+            scriptState.active = false
+            safeCleanup()
+            if scriptState.mainWindow then scriptState.mainWindow:hide() end
+            if scriptState.miniWindow then scriptState.miniWindow:hide() end
+            gg.toast("脚本已关闭")
+            os.exit()
+        end
+    end
+    
+    local flySection = window:addRect(20, 50, 320, 50)
+    flySection.color = 0x34495E80
+    flySection.cornerRadius = 6
+    
+    local flyLabel = window:addLabel("人物飞天")
+    flyLabel.x = 40
+    flyLabel.y = 65
+    flyLabel.fontSize = 14
+    flyLabel.color = 0xECF0F1
+    
+    local flySwitch = window:addSwitch(260, 60, 60, 30)
+    flySwitch.color = 0x7F8C8D
+    flySwitch.onColor = 0x2ECC71
+    flySwitch.state = false
+    flySwitch.onChange = function(state)
+        if state then
+            enableFly()
+            updateStatus("飞天", "已启用")
+        else
+            disableFly()
+            updateStatus("飞天", "已禁用")
+        end
+    end
+    
+    local wallSection = window:addRect(20, 110, 320, 50)
+    wallSection.color = 0x34495E80
+    wallSection.cornerRadius = 6
+    
+    local wallLabel = window:addLabel("人物穿墙")
+    wallLabel.x = 40
+    wallLabel.y = 125
+    wallLabel.fontSize = 14
+    wallLabel.color = 0xECF0F1
+    
+    local wallSwitch = window:addSwitch(260, 120, 60, 30)
+    wallSwitch.color = 0x7F8C8D
+    wallSwitch.onColor = 0x3498DB
+    wallSwitch.state = false
+    wallSwitch.onChange = function(state)
+        scriptState.settings.wallCollision = state
+        if state then
+            enableWallPass()
+            updateStatus("穿墙", "已启用")
+        else
+            disableWallPass()
+            updateStatus("穿墙", "已禁用")
+        end
+    end
+    
+    local jumpSection = window:addRect(20, 170, 320, 50)
+    jumpSection.color = 0x34495E80
+    jumpSection.cornerRadius = 6
+    
+    local jumpLabel = window:addLabel("无限制跳跃")
+    jumpLabel.x = 40
+    jumpLabel.y = 185
+    jumpLabel.fontSize = 14
+    jumpLabel.color = 0xECF0F1
+    
+    local jumpSwitch = window:addSwitch(260, 180, 60, 30)
+    jumpSwitch.color = 0x7F8C8D
+    jumpSwitch.onColor = 0x9B59B6
+    jumpSwitch.state = false
+    jumpSwitch.onChange = function(state)
+        scriptState.settings.infiniteJump = state
+        if state then
+            enableInfiniteJump()
+            updateStatus("无限跳", "已启用")
+        else
+            disableInfiniteJump()
+            updateStatus("无限跳", "已禁用")
+        end
+    end
+    
+    local airSection = window:addRect(20, 230, 320, 50)
+    airSection.color = 0x34495E80
+    airSection.cornerRadius = 6
+    
+    local airLabel = window:addLabel("踏空行走")
+    airLabel.x = 40
+    airLabel.y = 245
+    airLabel.fontSize = 14
+    airLabel.color = 0xECF0F1
+    
+    local airSwitch = window:addSwitch(260, 240, 60, 30)
+    airSwitch.color = 0x7F8C8D
+    airSwitch.onColor = 0xE67E22
+    airSwitch.state = false
+    airSwitch.onChange = function(state)
+        scriptState.settings.walkAir = state
+        if state then
+            enableWalkAir()
+            updateStatus("踏空", "已启用")
+        else
+            disableWalkAir()
+            updateStatus("踏空", "已禁用")
+        end
+    end
+    
+    local speedSection = window:addRect(20, 290, 320, 80)
+    speedSection.color = 0x34495E80
+    speedSection.cornerRadius = 6
+    
+    local speedLabel = window:addLabel("游戏加速")
+    speedLabel.x = 40
+    speedLabel.y = 305
+    speedLabel.fontSize = 14
+    speedLabel.color = 0xECF0F1
+    
+    local speedValueBox = window:addEditBox(190, 305, 60, 25)
+    speedValueBox.text = "1.0"
+    speedValueBox.textColor = 0xFFFFFF
+    speedValueBox.backgroundColor = 0x2C3E50
+    speedValueBox.onTextChange = function(text)
+        local num = tonumber(text)
+        if num then
+            num = math.max(scriptState.settings.minSpeed, 
+                          math.min(scriptState.settings.maxSpeed, num))
+            scriptState.settings.speedMultiplier = num
+            speedValueBox.text = string.format("%.1f", num)
+        end
+    end
+    
+    local speedSlider = window:addSlider(40, 340, 240, 20)
+    speedSlider.minValue = scriptState.settings.minSpeed
+    speedSlider.maxValue = scriptState.settings.maxSpeed
+    speedSlider.value = 1.0
+    speedSlider.color = 0x7F8C8D
+    speedSlider.onColor = 0x1ABC9C
+    speedSlider.onChange = function(value)
+        scriptState.settings.speedMultiplier = value
+        speedValueBox.text = string.format("%.1f", value)
+        if scriptState.speedEnabled then
+            applySpeedMultiplier(value)
+        end
+    end
+    
+    local speedSwitch = window:addSwitch(300, 305, 40, 25)
+    speedSwitch.color = 0x7F8C8D
+    speedSwitch.onColor = 0x1ABC9C
+    speedSwitch.state = false
+    speedSwitch.onChange = function(state)
+        scriptState.speedEnabled = state
+        if state then
+            applySpeedMultiplier(scriptState.settings.speedMultiplier)
+            updateStatus("加速", "已启用 - " .. scriptState.settings.speedMultiplier .. "x")
+        else
+            applySpeedMultiplier(1.0)
+            updateStatus("加速", "已禁用")
+        end
+    end
+    
+    local itemSection = window:addRect(20, 380, 320, 60)
+    itemSection.color = 0x34495E80
+    itemSection.cornerRadius = 6
+    
+    local itemLabel = window:addLabel("物品识别")
+    itemLabel.x = 40
+    itemLabel.y = 395
+    itemLabel.fontSize = 14
+    itemLabel.color = 0xECF0F1
+    
+    local recognizeBtn = window:addButton("开始识别")
+    recognizeBtn.x = 160
+    recognizeBtn.y = 390
+    recognizeBtn.width = 80
+    recognizeBtn.height = 30
+    recognizeBtn.color = 0x3498DB
+    recognizeBtn.onClick = function()
+        startItemRecognition()
+    end
+    
+    local operateSection = window:addRect(20, 450, 320, 60)
+    operateSection.color = 0x34495E80
+    operateSection.cornerRadius = 6
+    
+    local operateLabel = window:addLabel("物品操作")
+    operateLabel.x = 40
+    operateLabel.y = 465
+    operateLabel.fontSize = 14
+    operateLabel.color = 0xECF0F1
+    
+    local operateBtn = window:addButton("开始操作")
+    operateBtn.x = 160
+    operateBtn.y = 460
+    operateBtn.width = 80
+    operateBtn.height = 30
+    operateBtn.color = #scriptState.recognizedItems > 0 and 0x2ECC71 or 0x95A5A6
+    operateBtn.enabled = #scriptState.recognizedItems > 0
+    operateBtn.onClick = function()
+        if #scriptState.recognizedItems > 0 then
+            startItemOperation()
+        else
+            gg.toast("白名单为空，无法操作")
+        end
+    end
+    
+    local manageBtn = window:addButton("管理")
+    manageBtn.x = 250
+    manageBtn.y = 460
+    manageBtn.width = 60
+    manageBtn.height = 30
+    manageBtn.color = 0xE67E22
+    manageBtn.onClick = function()
+        manageWhitelist()
+    end
+    
+    local statusBg = window:addRect(10, 520, 340, 50)
+    statusBg.color = 0x2C3E50FF
+    
+    local statusMain = window:addLabel("当前: 等待操作")
+    statusMain.x = 20
+    statusMain.y = 530
+    statusMain.fontSize = 12
+    statusMain.color = 0x2ECC71
+    
+    local statusSecondary = window:addLabel("上一步: 脚本已初始化")
+    statusSecondary.x = 20
+    statusSecondary.y = 550
+    statusSecondary.fontSize = 11
+    statusSecondary.color = 0xBDC3C7
+    
+    scriptState.uiElements = {
+        window = window,
+        statusMain = statusMain,
+        statusSecondary = statusSecondary,
+        operateBtn = operateBtn,
+        recognizedItemsLabel = window:addLabel("白名单: 0/2"),
+        minimizeBtn = minimizeBtn,
+        closeBtn = closeBtn
+    }
+    scriptState.uiElements.recognizedItemsLabel.x = 270
+    scriptState.uiElements.recognizedItemsLabel.y = 395
+    scriptState.uiElements.recognizedItemsLabel.fontSize = 11
+    scriptState.uiElements.recognizedItemsLabel.color = #scriptState.recognizedItems > 0 and 0x2ECC71 or 0xE74C3C
+    
+    return window
+end
+
+local function createMiniUI(x, y)
+    local miniWindow = ggui.new()
+    miniWindow.width = 50
+    miniWindow.height = 50
+    miniWindow.x = x or 50
+    miniWindow.y = y or 100
+    miniWindow.backgroundColor = 0x000000C8
+    miniWindow.borderColor = 0x4CAF50
+    miniWindow.borderWidth = 1
+    miniWindow.movable = true
+    miniWindow.resizable = false
+    
+    local dLabel = miniWindow:addLabel("D")
+    dLabel.x = 18
+    dLabel.y = 15
+    dLabel.fontSize = 20
+    dLabel.color = 0x4CAF50
+    dLabel.bold = true
+    
+    local clickCount = 0
+    local lastClickTime = 0
+    
+    miniWindow.onTouch = function()
+        local currentTime = os.time()
+        if currentTime - lastClickTime < 0.5 then
+            clickCount = clickCount + 1
+            if clickCount >= 2 then
+                miniWindow:hide()
+                if scriptState.mainWindow then
+                    scriptState.mainWindow.x = miniWindow.x
+                    scriptState.mainWindow.y = miniWindow.y
+                    scriptState.mainWindow:show()
+                else
+                    scriptState.mainWindow = createMainUI()
+                    scriptState.mainWindow.x = miniWindow.x
+                    scriptState.mainWindow.y = miniWindow.y
+                end
+                scriptState.minimized = false
+                clickCount = 0
+            end
+        else
+            clickCount = 1
+        end
+        lastClickTime = currentTime
+    end
+    
+    scriptState.miniWindow = miniWindow
+    return miniWindow
+end
+
+function enableFly()
+    gg.clearResults()
+    gg.setRanges(gg.REGION_ANONYMOUS | gg.REGION_C_ALLOC)
+    gg.searchNumber("1;5.12099981308", gg.TYPE_FLOAT)
+    local count = gg.getResultCount()
+    if count > 0 then
+        local results = gg.getResults(count)
+        for i, v in ipairs(results) do
+            if math.abs(v.value - 5.12099981308) < 0.1 then
+                v.value = scriptState.settings.flyHeight
+                gg.setValues({v})
+                break
+            end
+        end
+    end
+    gg.clearResults()
+end
+
+function disableFly()
+    gg.clearResults()
+    gg.setRanges(gg.REGION_ANONYMOUS | gg.REGION_C_ALLOC)
+    gg.searchNumber(tostring(scriptState.settings.flyHeight), gg.TYPE_FLOAT)
+    local count = gg.getResultCount()
+    if count > 0 then
+        local results = gg.getResults(count)
+        for i, v in ipairs(results) do
+            v.value = 5.12099981308
+            gg.setValues({v})
+        end
+    end
+    gg.clearResults()
+end
+
+function enableWallPass()
+    gg.clearResults()
+    gg.setRanges(gg.REGION_C_ALLOC)
+    gg.searchNumber("0.30000001192", gg.TYPE_FLOAT)
+    local count = gg.getResultCount()
+    if count > 0 then
+        local results = gg.getResults(math.min(count, 10))
+        for i, v in ipairs(results) do
+            v.value = 0
+            gg.addListItems({[1] = {address = v.address, flags = gg.TYPE_FLOAT, 
+                                   value = 0, freeze = true}})
+        end
+    end
+end
+
+function disableWallPass()
+    gg.clearResults()
+    gg.setRanges(gg.REGION_C_ALLOC)
+    gg.searchNumber("0", gg.TYPE_FLOAT)
+    local count = gg.getResultCount()
+    if count > 0 then
+        local results = gg.getResults(math.min(count, 10))
+        for i, v in ipairs(results) do
+            v.value = 0.30000001192
+            gg.setValues({v})
+        end
+    end
+    gg.clearList()
+end
+
+function enableInfiniteJump()
+    gg.clearResults()
+    gg.setRanges(gg.REGION_ANONYMOUS)
+    gg.searchNumber("1;1;1;1::", gg.TYPE_DWORD)
+    local count = gg.getResultCount()
+    if count > 0 then
+        local results = gg.getResults(math.min(count, 100))
+        for i, v in ipairs(results) do
+            if v.value == 1 then
+                gg.addListItems({[1] = {address = v.address, flags = gg.TYPE_DWORD, 
+                                       value = 999999, freeze = true}})
+            end
+        end
+    end
+end
+
+function disableInfiniteJump()
+    gg.clearList()
+end
+
+function enableWalkAir()
+    gg.clearResults()
+    gg.setRanges(gg.REGION_C_ALLOC)
+    gg.searchNumber("-9.8;-9.8;0.5::", gg.TYPE_FLOAT)
+    local count = gg.getResultCount()
+    if count > 0 then
+        local results = gg.getResults(math.min(count, 20))
+        for i, v in ipairs(results) do
+            if v.value < -9.7 and v.value > -9.9 then
+                v.value = 0.1
+                gg.addListItems({[1] = {address = v.address, flags = gg.TYPE_FLOAT, 
+                                       value = 0.1, freeze = true}})
+            end
+        end
+    end
+end
+
+function disableWalkAir()
+    gg.clearResults()
+    gg.setRanges(gg.REGION_C_ALLOC)
+    gg.searchNumber("0.1", gg.TYPE_FLOAT)
+    local count = gg.getResultCount()
+    if count > 0 then
+        local results = gg.getResults(math.min(count, 20))
+        for i, v in ipairs(results) do
+            v.value = -9.8
+            gg.setValues({v})
+        end
+    end
+    gg.clearList()
+end
+
+function applySpeedMultiplier(multiplier)
+    gg.clearResults()
+    gg.setRanges(gg.REGION_C_ALLOC)
+    gg.searchNumber("1.0", gg.TYPE_FLOAT)
+    local count = gg.getResultCount()
+    if count > 0 then
+        local results = gg.getResults(math.min(count, 50))
+        for i, v in ipairs(results) do
+            if math.abs(v.value - 1.0) < 0.01 then
+                v.value = multiplier
+                if scriptState.speedEnabled then
+                    gg.addListItems({[1] = {address = v.address, flags = gg.TYPE_FLOAT, 
+                                           value = multiplier, freeze = true}})
+                else
+                    gg.setValues({v})
+                end
+            end
+        end
+    end
+end
+
+function startItemRecognition()
+    updateStatus("物品识别", "开始识别，请立即拾取物品...")
+    scriptState.recognizeThread = gg.thread(function()
+        local startTime = os.time()
+        local lastInventory = getCurrentInventory() or {}
+        local timeout = 15
+        while os.time() - startTime < timeout do
+            gg.sleep(300)
+            local currentInventory = getCurrentInventory() or {}
+            if #currentInventory > #lastInventory then
+                for i, item in ipairs(currentInventory) do
+                    local found = false
+                    for j, oldItem in ipairs(lastInventory) do
+                        if item == oldItem then
+                            found = true
+                            break
+                        end
+                    end
+                    if not found then
+                        local choice = gg.alert("发现新物品: " .. item .. "\n是否添加到白名单？", "确定", "取消")
+                        if choice == 1 then
+                            if #scriptState.recognizedItems >= scriptState.maxWhitelist then
+                                gg.alert("白名单已满（最多" .. scriptState.maxWhitelist .. "个）")
+                            else
+                                table.insert(scriptState.recognizedItems, item)
+                                if scriptState.uiElements and scriptState.uiElements.recognizedItemsLabel then
+                                    scriptState.uiElements.recognizedItemsLabel.text = 
+                                        "白名单: " .. #scriptState.recognizedItems .. "/" .. scriptState.maxWhitelist
+                                    scriptState.uiElements.recognizedItemsLabel.color = 0x2ECC71
+                                    if scriptState.uiElements.operateBtn then
+                                        scriptState.uiElements.operateBtn.color = 0x2ECC71
+                                        scriptState.uiElements.operateBtn.enabled = true
+                                    end
+                                end
+                                updateStatus("物品识别", "已添加: " .. item)
+                                gg.toast("物品已添加到白名单: " .. item)
+                                return true
+                            end
+                        end
+                    end
+                end
+            end
+            lastInventory = currentInventory
+        end
+        updateStatus("物品识别", "识别超时")
+        gg.toast("物品识别超时，请重试")
+        return false
+    end)
+end
+
+function getCurrentInventory()
+    local inventory = {}
+    gg.clearResults()
+    gg.setRanges(gg.REGION_C_ALLOC)
+    gg.searchNumber("100;200;300::", gg.TYPE_DWORD)
+    local results = gg.getResults(50)
+    for _, v in ipairs(results) do
+        local nameAddr = v.address + 0x10
+        local name = gg.getString(nameAddr)
+        if name and #name > 0 and #name < 50 then
+            table.insert(inventory, name)
+        end
+    end
+    gg.clearResults()
+    return inventory
+end
+
+function startItemOperation()
+    if #scriptState.recognizedItems == 0 then
+        gg.toast("白名单为空")
+        return
+    end
+    scriptState.searchActive = true
+    updateStatus("物品操作", "开始搜索目标物品...")
+    scriptState.searchThread = gg.thread(function()
+        while scriptState.searchActive do
+            gg.sleep(16)
+            for _, itemName in ipairs(scriptState.recognizedItems) do
+                local components = findComponentsByName(itemName)
+                if #components > 0 then
+                    for _, component in ipairs(components) do
+                        simulateInteraction(component)
+                        local pos = getComponentPosition(component)
+                        if pos then
+                            local fixedPos = {
+                                x = pos.x + 1.0,
+                                y = pos.y + 0.5,
+                                z = pos.z + 2.0
+                            }
+                            setComponentPosition(component, fixedPos)
+                            local maintThread = gg.thread(function()
+                                local targetPos = fixedPos
+                                while scriptState.searchActive do
+                                    gg.sleep(16)
+                                    setComponentPosition(component, targetPos)
+                                end
+                            end)
+                            table.insert(scriptState.maintenanceThreads, maintThread)
+                        end
+                    end
+                    updateStatus("物品操作", "正在操作: " .. itemName)
+                end
+            end
+            gg.sleep(1)
+        end
+    end)
+end
+
+function findComponentsByName(name)
+    local components = {}
+    return components
+end
+
+function simulateInteraction(component)
+end
+
+function getComponentPosition(component)
+    return {x=0, y=0, z=0}
+end
+
+function setComponentPosition(component, position)
+end
+
+function manageWhitelist()
+    if #scriptState.recognizedItems == 0 then
+        gg.alert("白名单为空")
+        return
+    end
+    local itemsText = ""
+    for i, item in ipairs(scriptState.recognizedItems) do
+        itemsText = itemsText .. i .. ". " .. item .. "\n"
+    end
+    local choice = gg.alert("白名单管理\n\n" .. itemsText, "清除全部", "取消")
+    if choice == 1 then
+        local confirm = gg.alert("确定清除所有白名单物品？", "确定", "取消")
+        if confirm == 1 then
+            scriptState.recognizedItems = {}
+            if scriptState.uiElements then
+                scriptState.uiElements.recognizedItemsLabel.text = "白名单: 0/" .. scriptState.maxWhitelist
+                scriptState.uiElements.recognizedItemsLabel.color = 0xE74C3C
+                if scriptState.uiElements.operateBtn then
+                    scriptState.uiElements.operateBtn.color = 0x95A5A6
+                    scriptState.uiElements.operateBtn.enabled = false
+                end
+            end
+            updateStatus("白名单", "已清除所有物品")
+            gg.toast("白名单已清空")
+        end
+    end
+end
+
+function main()
+    if not ggui then
+        gg.alert("请使用支持UI的GG修改器版本")
+        return
+    end
+    startHeartbeat()
+    scriptState.mainWindow = createMainUI()
+    while scriptState.active do
+        gg.sleep(1000)
+        if not scriptState.uiVisible and not scriptState.minimized then
+            break
+        end
+    end
+    safeCleanup()
+    gg.toast("脚本已安全退出")
+end
+
+main()
