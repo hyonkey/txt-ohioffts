@@ -1,0 +1,418 @@
+print("脚本初始化开始")
+gg.alert("脚本制作人：呆滞丶\n此脚本仅供教学作用且为AI制作\n禁止进行商用")
+
+local scriptState = {
+    recognizedItems = {},
+    searchActive = false,
+    settings = {
+        flyEnabled = false,
+        wallCollision = false,
+        infiniteJump = false,
+        walkAir = false,
+        speedEnabled = false,
+        speedMultiplier = 1.0
+    }
+}
+
+-- ====== 核心功能函数 (与原脚本一致) ======
+local function enableFly()
+    gg.clearResults()
+    gg.setRanges(gg.REGION_ANONYMOUS | gg.REGION_C_ALLOC)
+    gg.searchNumber("1;5.12099981308", gg.TYPE_FLOAT)
+    local count = gg.getResultCount()
+    if count > 0 then
+        local results = gg.getResults(count)
+        for i, v in ipairs(results) do
+            if math.abs(v.value - 5.12099981308) < 0.1 then
+                v.value = 999999
+                gg.setValues({v})
+                break
+            end
+        end
+    end
+    gg.clearResults()
+    gg.toast("[飞天] 已启用")
+end
+
+local function disableFly()
+    gg.clearResults()
+    gg.setRanges(gg.REGION_ANONYMOUS | gg.REGION_C_ALLOC)
+    gg.searchNumber("999999", gg.TYPE_FLOAT)
+    local count = gg.getResultCount()
+    if count > 0 then
+        local results = gg.getResults(count)
+        for i, v in ipairs(results) do
+            v.value = 5.12099981308
+            gg.setValues({v})
+        end
+    end
+    gg.clearResults()
+    gg.toast("[飞天] 已禁用")
+end
+
+local function enableWallPass()
+    gg.clearResults()
+    gg.setRanges(gg.REGION_C_ALLOC)
+    gg.searchNumber("0.30000001192", gg.TYPE_FLOAT)
+    local count = gg.getResultCount()
+    if count > 0 then
+        local results = gg.getResults(math.min(count, 10))
+        for i, v in ipairs(results) do
+            gg.addListItems({[1] = {address = v.address, flags = gg.TYPE_FLOAT, value = 0, freeze = true}})
+        end
+    end
+    gg.toast("[穿墙] 已启用")
+end
+
+local function disableWallPass()
+    gg.clearResults()
+    gg.setRanges(gg.REGION_C_ALLOC)
+    gg.searchNumber("0", gg.TYPE_FLOAT)
+    local count = gg.getResultCount()
+    if count > 0 then
+        local results = gg.getResults(math.min(count, 10))
+        for i, v in ipairs(results) do
+            v.value = 0.30000001192
+            gg.setValues({v})
+        end
+    end
+    gg.clearList()
+    gg.toast("[穿墙] 已禁用")
+end
+
+local function enableInfiniteJump()
+    gg.clearResults()
+    gg.setRanges(gg.REGION_ANONYMOUS)
+    gg.searchNumber("1;1;1;1::", gg.TYPE_DWORD)
+    local count = gg.getResultCount()
+    if count > 0 then
+        local results = gg.getResults(math.min(count, 100))
+        for i, v in ipairs(results) do
+            if v.value == 1 then
+                gg.addListItems({[1] = {address = v.address, flags = gg.TYPE_DWORD, value = 999999, freeze = true}})
+            end
+        end
+    end
+    gg.toast("[无限跳] 已启用")
+end
+
+local function disableInfiniteJump()
+    gg.clearList()
+    gg.toast("[无限跳] 已禁用")
+end
+
+local function enableWalkAir()
+    gg.clearResults()
+    gg.setRanges(gg.REGION_C_ALLOC)
+    gg.searchNumber("-9.8;-9.8;0.5::", gg.TYPE_FLOAT)
+    local count = gg.getResultCount()
+    if count > 0 then
+        local results = gg.getResults(math.min(count, 20))
+        for i, v in ipairs(results) do
+            if v.value < -9.7 and v.value > -9.9 then
+                gg.addListItems({[1] = {address = v.address, flags = gg.TYPE_FLOAT, value = 0.1, freeze = true}})
+            end
+        end
+    end
+    gg.toast("[踏空] 已启用")
+end
+
+local function disableWalkAir()
+    gg.clearResults()
+    gg.setRanges(gg.REGION_C_ALLOC)
+    gg.searchNumber("0.1", gg.TYPE_FLOAT)
+    local count = gg.getResultCount()
+    if count > 0 then
+        local results = gg.getResults(math.min(count, 20))
+        for i, v in ipairs(results) do
+            v.value = -9.8
+            gg.setValues({v})
+        end
+    end
+    gg.clearList()
+    gg.toast("[踏空] 已禁用")
+end
+
+local function applySpeedMultiplier(multiplier)
+    if multiplier == 1.0 then
+        gg.clearResults()
+        gg.setRanges(gg.REGION_C_ALLOC)
+        gg.searchNumber("100.0;10.0;5.0;2.0;0.5", gg.TYPE_FLOAT)
+        local count = gg.getResultCount()
+        if count > 0 then
+            local results = gg.getResults(math.min(count, 50))
+            for i, v in ipairs(results) do
+                v.value = 1.0
+                gg.setValues({v})
+            end
+        end
+        gg.clearResults()
+        return
+    end
+    -- 简化版速度修改（原维护线程逻辑较复杂，此处做一次性修改）
+    gg.clearResults()
+    gg.setRanges(gg.REGION_C_ALLOC)
+    gg.searchNumber("1.0", gg.TYPE_FLOAT)
+    local count = gg.getResultCount()
+    if count > 0 then
+        local results = gg.getResults(math.min(count, 30))
+        for i, v in ipairs(results) do
+            if math.abs(v.value - 1.0) < 0.01 then
+                v.value = multiplier
+                gg.setValues({v})
+            end
+        end
+    end
+    gg.clearResults()
+end
+
+-- ====== 物品识别与操作相关函数 ======
+local function getCurrentInventory()
+    local inventory = {}
+    -- 这是一个示例框架，实际使用时需要根据游戏调整搜索方法
+    gg.clearResults()
+    gg.setRanges(gg.REGION_C_ALLOC)
+    local searchSuccess, searchError = pcall(function()
+        gg.searchNumber("100;200;300::", gg.TYPE_DWORD)
+    end)
+    if searchSuccess then
+        local results = gg.getResults(50)
+        for _, v in ipairs(results) do
+            local nameAddr = v.address + 0x10
+            local name = gg.getString(nameAddr)
+            if name and #name > 0 and #name < 50 then
+                table.insert(inventory, name)
+            end
+        end
+        gg.clearResults()
+    end
+    return inventory
+end
+
+local function startItemRecognition()
+    gg.toast("开始识别，请在10秒内拾取物品...")
+    local startTime = os.time()
+    local lastInventory = getCurrentInventory() or {}
+    local timeout = 10
+    
+    while os.time() - startTime < timeout do
+        gg.sleep(500)
+        local currentInventory = getCurrentInventory() or {}
+        if #currentInventory > #lastInventory then
+            for _, item in ipairs(currentInventory) do
+                local found = false
+                for _, oldItem in ipairs(lastInventory) do
+                    if item == oldItem then
+                        found = true
+                        break
+                    end
+                end
+                if not found then
+                    local choice = gg.alert("发现新物品: " .. item, "加入白名单", "忽略")
+                    if choice == 1 then
+                        if #scriptState.recognizedItems >= 2 then
+                            gg.alert("白名单已满（最多2个）")
+                        else
+                            table.insert(scriptState.recognizedItems, item)
+                            gg.toast("已添加至白名单: " .. item)
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+        lastInventory = currentInventory
+    end
+    gg.toast("识别超时")
+    return false
+end
+
+-- ====== 菜单界面函数 ======
+local function menuMain()
+    local choice = gg.choice({
+        "🎮 人物功能",
+        "📦 物品识别与操作",
+        "⚙️ 脚本设置",
+        "❌ 退出脚本"
+    }, nil, "Daixiaohao - 汤姆猫荒野派对\n当前白名单: " .. #scriptState.recognizedItems .. "/2")
+    
+    if choice == 1 then
+        menuCharacter()
+    elseif choice == 2 then
+        menuItems()
+    elseif choice == 3 then
+        menuSettings()
+    elseif choice == 4 then
+        local confirm = gg.alert("确定退出脚本？", "确定", "取消")
+        if confirm == 1 then
+            gg.toast("脚本已退出")
+            os.exit()
+        else
+            menuMain()
+        end
+    end
+end
+
+local function menuCharacter()
+    local statusFly = scriptState.settings.flyEnabled and "✅" or "❌"
+    local statusWall = scriptState.settings.wallCollision and "✅" or "❌"
+    local statusJump = scriptState.settings.infiniteJump and "✅" or "❌"
+    local statusAir = scriptState.settings.walkAir and "✅" or "❌"
+    local statusSpeed = scriptState.settings.speedEnabled and "✅ " .. scriptState.settings.speedMultiplier .. "x" or "❌"
+    
+    local choice = gg.choice({
+        statusFly .. " 人物飞天",
+        statusWall .. " 人物穿墙",
+        statusJump .. " 无限制跳跃",
+        statusAir .. " 踏空行走",
+        statusSpeed .. " 游戏加速",
+        "⬅️ 返回主菜单"
+    }, nil, "人物功能设置")
+    
+    if choice == 1 then
+        scriptState.settings.flyEnabled = not scriptState.settings.flyEnabled
+        if scriptState.settings.flyEnabled then
+            enableFly()
+        else
+            disableFly()
+        end
+        menuCharacter()
+    elseif choice == 2 then
+        scriptState.settings.wallCollision = not scriptState.settings.wallCollision
+        if scriptState.settings.wallCollision then
+            enableWallPass()
+        else
+            disableWallPass()
+        end
+        menuCharacter()
+    elseif choice == 3 then
+        scriptState.settings.infiniteJump = not scriptState.settings.infiniteJump
+        if scriptState.settings.infiniteJump then
+            enableInfiniteJump()
+        else
+            disableInfiniteJump()
+        end
+        menuCharacter()
+    elseif choice == 4 then
+        scriptState.settings.walkAir = not scriptState.settings.walkAir
+        if scriptState.settings.walkAir then
+            enableWalkAir()
+        else
+            disableWalkAir()
+        end
+        menuCharacter()
+    elseif choice == 5 then
+        menuSpeed()
+    elseif choice == 6 then
+        menuMain()
+    end
+end
+
+local function menuSpeed()
+    local choice = gg.choice({
+        "🚀 开启/关闭加速",
+        "🔢 设置加速倍数",
+        "⬅️ 返回上一页"
+    }, nil, "当前倍数: " .. scriptState.settings.speedMultiplier .. "x")
+    
+    if choice == 1 then
+        scriptState.settings.speedEnabled = not scriptState.settings.speedEnabled
+        if scriptState.settings.speedEnabled then
+            applySpeedMultiplier(scriptState.settings.speedMultiplier)
+            gg.toast("[加速] 已启用 (" .. scriptState.settings.speedMultiplier .. "x)")
+        else
+            applySpeedMultiplier(1.0)
+            gg.toast("[加速] 已禁用")
+        end
+        menuSpeed()
+    elseif choice == 2 then
+        local input = gg.prompt({"请输入加速倍数 (0.1 - 100.0):"}, {tostring(scriptState.settings.speedMultiplier)}, {"number"})
+        if input and input[1] then
+            local num = tonumber(input[1])
+            if num and num >= 0.1 and num <= 100.0 then
+                scriptState.settings.speedMultiplier = num
+                if scriptState.settings.speedEnabled then
+                    applySpeedMultiplier(num)
+                end
+                gg.toast("加速倍数已设置为: " .. num .. "x")
+            else
+                gg.toast("输入无效")
+            end
+        end
+        menuSpeed()
+    elseif choice == 3 then
+        menuCharacter()
+    end
+end
+
+local function menuItems()
+    local whitelistText = ""
+    if #scriptState.recognizedItems > 0 then
+        whitelistText = "\n\n白名单物品:"
+        for i, item in ipairs(scriptState.recognizedItems) do
+            whitelistText = whitelistText .. "\n" .. i .. ". " .. item
+        end
+    end
+    
+    local choice = gg.choice({
+        "🔍 识别新物品",
+        "⚡ 开始操作物品",
+        "🗑️ 清空白名单",
+        "⬅️ 返回主菜单"
+    }, nil, "物品识别与操作" .. whitelistText)
+    
+    if choice == 1 then
+        startItemRecognition()
+        menuItems()
+    elseif choice == 2 then
+        if #scriptState.recognizedItems > 0 then
+            gg.alert("物品操作功能", "此功能需要根据具体游戏调整内存搜索逻辑。\n当前白名单物品数: " .. #scriptState.recognizedItems)
+        else
+            gg.alert("白名单为空", "请先识别物品")
+        end
+        menuItems()
+    elseif choice == 3 then
+        if #scriptState.recognizedItems > 0 then
+            local confirm = gg.alert("确定清除所有白名单物品？", "确定", "取消")
+            if confirm == 1 then
+                scriptState.recognizedItems = {}
+                gg.toast("白名单已清空")
+            end
+        else
+            gg.toast("白名单已为空")
+        end
+        menuItems()
+    elseif choice == 4 then
+        menuMain()
+    end
+end
+
+local function menuSettings()
+    local choice = gg.choice({
+        "🧹 清理内存结果",
+        "ℹ️ 脚本信息",
+        "⬅️ 返回主菜单"
+    }, nil, "脚本设置")
+    
+    if choice == 1 then
+        gg.clearResults()
+        gg.clearList()
+        gg.toast("已清理内存结果和冻结列表")
+        menuSettings()
+    elseif choice == 2 then
+        gg.alert("脚本信息", "Daixiaohao - 汤姆猫荒野派对\n版本: 菜单版 1.0\n仅供教学使用\n请勿用于商业用途")
+        menuSettings()
+    elseif choice == 3 then
+        menuMain()
+    end
+end
+
+-- ====== 脚本主入口 ======
+gg.toast("脚本加载完成")
+while true do
+    if gg.isVisible(true) then
+        gg.setVisible(false)
+        menuMain()
+    end
+    gg.sleep(100)
+end
